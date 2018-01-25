@@ -1,0 +1,6 @@
+APP = streamer
+
+OBJECTS = streamer.o util.o
+
+include Makefile.common
+

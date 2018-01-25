@@ -1,0 +1,27 @@
+1. During initial phase, leadAp needs to send notification to host about the coreID of leadAP
+   This is useful if we use CONFIGURABLE instead of USE_FIX_NODES
+2. During initial phase, worker cores check if leadAp is running.
+   LeadAp may fail to run (for various reasons), hence it is not necessary for workers to continue.
+
+3. Do the test for reconfigurable network (not USE_FIX_NODES)
+
+
+4. If there is packet lost during frame transmission, process whatever data it holds currently
+
+5. After grayscaling: broadcast the pixels to external chips
+
+
+---------------------------
+28 Juli 2016:
+- Test broadcasted MCPL step-by-step (dengan delay supaya bisa dilihat dengan io_printf
+
+---------------------------
+2 Oct 2016:
+- If using 48 nodes, and all nodes send MCPL_BLOCK_DONE_TEDGE, the LEAD_CORE in root-node
+  sometimes misses the packet (although not dropped).
+  Solution:
+  - split the MCPL and processed by two cores: NO! Too complicated for counting how-many
+  - using FR: NO! also too complicated (its routing handle)
+  - ignore MCPL_BLOCK_DONE and continue with the next task, assuming that sending result
+    will long enough to make other nodes complete their tasks
+

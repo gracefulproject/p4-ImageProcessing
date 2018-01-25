@@ -1,0 +1,93 @@
+/* Note from Author:
+ *    This is my "Diary"
+ *    So, don't be surprised with foreign language :)
+ */
+
+TODO:
+0. Implement RLE: NO! It useless!!!
+1. Implement gray-scaling: converting RGB to grey
+2. Implement fault-tolerance
+
+
+In this version, let's use this approach:
+1. The number of blocks is set with default:
+   in Spin3: 4 blocks
+   in Spin5: 48 blocks
+   This value can be set with command sent via SDP_PORT_CONFIG.
+2. We'll use chain mechanism for all data sent via SDP
+3. We decide to use colorful frames and let SpiNNaker convert to grey
+
+
+------------------------------------------------------------------------------------------
+How to achieve highest possible throughput using multiple-cores (16 cores or 17?)
+host-PC must send the 3 color orderly every time, such as:
+
+[send_R_chunk] [send_G_chunk] [send_B_chunk] [send_R_chunk] [send_G_chunk] [send_B_chunk] ...
+      1              1              1              2              2              2
+
+So that 3 consecutive chunks will be processed by core-1, core-2, and so on until core-10.
+Whenever a core receives 3 chunks, it processes the grayscalling and store the result to
+sdram directly.
+
+(Jadi gantian dengan efek hampir paralel karena kalau di-handle satu core aja akan lambat).
+
+Dengan demikian dibutuhkan format khusus:
+- 2 byte didepan digunakan untuk menunjukkan sequence-number supaya core
+  penerima tahu dimana hasilnya harus disimpan.
+  Sequence-number ini diletakkan didepan, jadi pas dibagian cmd_rc
+  -> Revisi: Sequence-number di letakkan di header, di bagian srce_addr
+------------------------------------------------------------------------------------------
+
+How to parallelize and decompress?
+xxx1xxx. R channel, G channel and B channel are sent in parallel, and reply message
+   is sent only once, when all channels have been received
+   --> NO, HANDSHAKING VIA SDP IS SLOW !!!
+
+1. R channel, G channel and B channel are sent in parallel
+
+2. Upon receiving, core <0,0,1> will broadcast the sdp address to core <xxx,xxx,2> for R channel,
+   to core <xxx,xxx,3> for G channel, and to core <xxx,xxx,4> for B channel
+   Step-1: core 2,3 and 4 will copy the sdp data locally
+   Step-2: the sdp is released
+   Step-3: core 2,3 and 4 will use dma to copy that buffer to SDRAM
+   Step-4: core 2,3 and 4 will broadcast the pixels to all external nodes
+   Hence, core 2,3 and 4 must maintain a special buffer before upload it to memory
+
+   The key format for forwarding packet is:
+   // the key will contains which channel (base_key), total length of current packet (pxLen)
+   // and current length of the chunk (szpx)
+   key = base_key | (fwdPktBuffer[ch].pxLen < 4) | szpx;
+   where base_key is either 0xbca80000, 0xbca90000, or 0xbcaA0000
+
+   --> Revisi: Sekarang ditambahkan opsi (via compiler directive), apakah akan fwd RGB atau gray
+
+----------------- Catatan 28 Juli 2016 - 17:13:44 -----------------
+Ada masalah dengan dma :
+- Tidak cocok antara sumber dengan hasil di sdram:
+  - ada tambahan 2 byte 00 00 di awal -> aku menduga karena ada offset di struct
+    --> dapat diselesaikan dengan menambankan 2 byte pad di struct
+  - tapi kemudian ada tambahan 2 byte 00 00 juga di akhir chunk
+    --> aku ndak tahu dari mana, tapi sepertinya dapat diselesaikan dengan
+	meletakkan ?pxbuf[] di luar struct
+- Sepertinya dengan meletakkan ?pxbuf[] di luar struct tetap tidak menyelesaikan masalah.
+  Karena di chunk-chunk berikutnya terjadi mismatching lagi...
+- IMPROVEMENT:
+  Dengan menggunakan heap, jadi ?pxbuf diletakkan di heap
+  Bahkan bisa hingga 270, bukan hanya 268!!!
+  --> Tapi belum solved the problem!!!
+- YANG PASTI, cara copy manual bisa menghasilkan hasil yang benar (meskipun mungkin lebih lambat)
+
+----------------- Catatan 29 Juli 2016 - 17:13:44 -----------------
+- Meskipun teknik copy manual ke sdram menghasilkan hasil yang sempurna, tapi sepertinya
+  hanya berfungsi untuk kecepatan sedang. Kalau kecepatan dinaikkan, hasilnya juga
+  ada noise seperti dengan dma.
+
+
+
+------------------ Regarding network/nodes configuration --------------------
+- The network/nodes configuration is sent via SDP port SDP_PORT_CONFIG with command
+  SDP_CMD_CONFIG_NETWORK. So, the sdp format is:
+  cmd_rc = SDP_CMD_CONFIG_NETWORK
+  seq = opType | opFilter | Sharpen -> each is 4 bits
+  srce_port = expected running frequency
+

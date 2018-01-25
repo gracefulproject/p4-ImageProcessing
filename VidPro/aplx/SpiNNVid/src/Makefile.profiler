@@ -1,0 +1,6 @@
+APP = profiler
+
+OBJECTS = profiler.o
+
+include Makefile.common
+
